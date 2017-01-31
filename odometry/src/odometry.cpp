@@ -44,6 +44,9 @@ public:
 
     //### Initial reset: factor pose increment's covariance ###
     C_D = Eigen::Matrix3d::Zero(3, 3);
+
+    // Reset value
+    resetValue = 0;
   }
 
   void run() {
@@ -57,31 +60,75 @@ public:
       double delta_x  = 0;
       double delta_y  = 0;
       double delta_th = 0;
-      double Delta_x  = 0;
-      double Delta_y  = 0;
-      double Delta_th = 0;
-      C_D = Eigen::Matrix3d::Zero(3, 3);
-      double x  = 0;
-      double y  = 0;
-      double th = 0;
-      
+      //double Delta_x  = 0;
+      //double Delta_y  = 0;
+      //double Delta_th = 0;
+      //C_D = Eigen::Matrix3d::Zero(3, 3);
+      //double x  = 0;
+      //double y  = 0;
+      //double th = 0;
+
+      // Temporal Jacobian matrix
+      Eigen::Matrix3d C_d;
+      Eigen::Matrix3d J_delta_t;
+      Eigen::Matrix3d J_D_D;
+      Eigen::Matrix3d J_D_d;
+
       //### Time Integration of Velocity Data ###
+      delta_x = vx * delta_t;
+      delta_y = vy * delta_t;
+      delta_th = vth * delta_t;
      
       //### Time Integration of Velocity Data - Jacobian stage ###
-      
+      J_delta_t = Eigen::Matrix3d::Identity(3,3);
+
       //### Integrate Factor ###
-    
+      C_d = J_delta_t * C_v * J_delta_t.transpose() * delta_t;
+
       //### Integrate Factor - Jacobian Stage ###
-      
+      // Pose increment
+      Delta_x = Delta_x + delta_x * cos(Delta_th) - delta_y * sin(Delta_th);
+      Delta_y = Delta_y + delta_x * sin(Delta_th) + delta_y * cos(Delta_th);
+      Delta_th = Delta_th + delta_th;
+
+      // Jacobian of the equations respect D
+      J_D_D << 	1,	0,	-delta_x * sin(Delta_th) - delta_y * cos(Delta_th),
+                0,	1,	delta_x * cos(Delta_th) - delta_y * sin(Delta_th),
+                0,	0,	1;
+
+      // Jacobian respect to d
+      J_D_d <<	cos(Delta_th),	-sin(Delta_th),	0,
+                sin(Delta_th),	cos(Delta_th),	0,
+                0,				      0,				      1;
+
       //### Integrate Factor - Covariance stage ###
+      C_D = J_D_D * C_D * J_D_D.transpose() + J_D_d * C_d * J_D_d.transpose();
 
       //### Integrate Global Pose ###
+      x = x + delta_x * cos(th) - delta_y * sin(th);
+      y = y + delta_x * sin(th) + delta_y * cos(th);
+      th = th + delta_th;
 
       //### Publish d, D and global poses, and covariance C_D ###
       delta_pub.publish(create_pose_msg(delta_x, delta_y, delta_th));
       Delta_pub.publish(create_pose_msg(Delta_x, Delta_y, Delta_th));
       C_D_pub.publish(create_covariance_msg(C_D));
       global_pub.publish(create_pose_msg(x, y, th));
+
+      // Each 30 cicles reset the values
+      if(resetValue == 30)
+      {
+      	Delta_x = 0.0;
+      	Delta_y = 0.0;
+      	Delta_th = 0.0;
+      	C_D = Eigen::Matrix3d::Zero(3,3);
+
+      	resetValue = 0;
+      }
+      else
+      {
+      	resetValue++;
+      }
 
       last_time = current_time;
       ros::spinOnce();
@@ -113,6 +160,9 @@ private:
   double x, y, th;
   double vx, vy, vth;
   double Delta_x, Delta_y, Delta_th;
+
+  // Reset value
+  int resetValue;
 
   geometry_msgs::Pose create_pose_msg(double x, double y, double th) {
     geometry_msgs::Quaternion pose_quat = tf::createQuaternionMsgFromYaw(th);
